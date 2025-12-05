@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { SessionConfig } from '../types';
-import { Play, Settings, Rabbit, Timer, HelpCircle, X, AlertTriangle, Wind, Moon, Sun } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { SessionConfig, AudioTheme } from '../types';
+import { Play, Rabbit, Timer, HelpCircle, X, AlertTriangle, Wind, Moon, Sun, Music, Trees, Building2, Car, Waves } from 'lucide-react';
 import { getMotivationalQuote } from '../services/geminiService';
 
 interface SetupViewProps {
@@ -11,29 +11,109 @@ export const SetupView: React.FC<SetupViewProps> = ({ onStart }) => {
   const [rounds, setRounds] = useState(3);
   const [breaths, setBreaths] = useState(30);
   const [retentionTimes, setRetentionTimes] = useState<number[]>([90, 120, 150]);
+  const [audioTheme, setAudioTheme] = useState<AudioTheme>('sea');
   const [quote, setQuote] = useState<string>("Cargando motivación...");
   const [showHelp, setShowHelp] = useState(false);
+  const previewAudioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
     getMotivationalQuote().then(setQuote);
   }, []);
 
-  // Update retention times array when rounds change
   useEffect(() => {
     setRetentionTimes((prev) => {
       const newTimes = [...prev];
       if (rounds > prev.length) {
-        // Add new rounds, incrementing by 30s from the last one
         for (let i = prev.length; i < rounds; i++) {
           newTimes.push((newTimes[i - 1] || 60) + 30);
         }
       } else if (rounds < prev.length) {
-        // Remove rounds
         return newTimes.slice(0, rounds);
       }
       return newTimes;
     });
   }, [rounds]);
+
+  useEffect(() => {
+      return () => {
+          if (previewAudioRef.current) {
+              previewAudioRef.current.pause();
+              previewAudioRef.current = null;
+          }
+      };
+  }, []);
+
+  const playPreviewAudio = async (theme: AudioTheme) => {
+      if (previewAudioRef.current) {
+          previewAudioRef.current.pause();
+          previewAudioRef.current = null;
+      }
+
+      const capTheme = theme.charAt(0).toUpperCase() + theme.slice(1);
+      const paths = [
+          `/public/audio/${theme}.mp3`,
+          `/audio/${theme}.mp3`,
+          `/public/audio/${capTheme}.mp3`,
+          `/audio/${capTheme}.mp3`
+      ];
+
+      let foundUrl: string | null = null;
+
+      // Try to find valid url
+      for (const path of paths) {
+          try {
+              const res = await fetch(path, { method: 'HEAD' });
+              if (res.ok) {
+                  const type = res.headers.get('Content-Type');
+                  if (type && !type.includes('text/html')) {
+                      foundUrl = path;
+                      break;
+                  }
+              }
+          } catch(e) {}
+      }
+
+      // Fallback: use direct path if fetch checks fail (common in some envs)
+      if (!foundUrl) {
+           foundUrl = `/public/audio/${theme}.mp3`;
+      }
+
+      if (foundUrl) {
+          const audio = new Audio(`${foundUrl}?t=${Date.now()}`);
+          audio.loop = true;
+          audio.volume = 0.5;
+          
+          // Safety timeout
+          const safetyTimeout = setTimeout(() => {
+             // If hanging, just ignore
+          }, 3000);
+
+          audio.oncanplaythrough = () => {
+              clearTimeout(safetyTimeout);
+              if (audioTheme === theme) {
+                  audio.play().catch(console.warn);
+                  previewAudioRef.current = audio;
+              }
+          };
+          
+          audio.onerror = () => {
+              clearTimeout(safetyTimeout);
+              // Simple try next path logic not implemented here for brevity in preview, 
+              // assuming explicit path usually works.
+          }
+
+          audio.load();
+      }
+  };
+
+  const handleThemeSelect = (theme: AudioTheme) => {
+      setAudioTheme(theme);
+      if (previewAudioRef.current) {
+          previewAudioRef.current.pause();
+          previewAudioRef.current = null;
+      }
+      playPreviewAudio(theme);
+  };
 
   const handleRetentionChange = (index: number, value: string) => {
     const newTimes = [...retentionTimes];
@@ -42,24 +122,38 @@ export const SetupView: React.FC<SetupViewProps> = ({ onStart }) => {
   };
 
   const handleStart = () => {
+    if (previewAudioRef.current) {
+        previewAudioRef.current.pause();
+        previewAudioRef.current = null;
+    }
+
     onStart({
       rounds,
       breathsPerRound: breaths,
       retentionTimes,
+      audioTheme
     });
   };
+
+  const themes: { id: AudioTheme; label: string; icon: React.ReactNode }[] = [
+    { id: 'sea', label: 'Mar', icon: <Waves className="w-5 h-5" /> },
+    { id: 'forest', label: 'Bosque', icon: <Trees className="w-5 h-5" /> },
+    { id: 'city', label: 'Ciudad', icon: <Building2 className="w-5 h-5" /> },
+    { id: 'autoway', label: 'Carretera', icon: <Car className="w-5 h-5" /> },
+  ];
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen p-4 md:p-6 bg-slate-900 text-slate-100 relative">
       
-      {/* Help Button */}
-      <button 
-        onClick={() => setShowHelp(true)}
-        className="absolute top-6 right-6 p-2 text-slate-400 hover:text-cyan-400 transition-colors rounded-full hover:bg-slate-800"
-        title="Guía del Conejo"
-      >
-        <HelpCircle className="w-6 h-6" />
-      </button>
+      <div className="absolute top-6 right-6 flex items-center gap-4">
+        <button 
+          onClick={() => setShowHelp(true)}
+          className="p-2 text-slate-400 hover:text-cyan-400 transition-colors rounded-full hover:bg-slate-800"
+          title="Guía del Conejo"
+        >
+          <HelpCircle className="w-6 h-6" />
+        </button>
+      </div>
 
       <div className="max-w-lg w-full space-y-8 animate-fade-in">
         
@@ -68,7 +162,7 @@ export const SetupView: React.FC<SetupViewProps> = ({ onStart }) => {
             <Rabbit className="w-12 h-12 text-cyan-400" />
           </div>
           <h1 className="text-4xl font-bold tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 to-blue-500">
-            Breather Rabbit
+            La Respiración del Conejo Zen
           </h1>
           <p className="text-slate-400 italic min-h-[3rem] text-sm px-4">
             "{quote}"
@@ -77,7 +171,6 @@ export const SetupView: React.FC<SetupViewProps> = ({ onStart }) => {
 
         <div className="bg-slate-800/50 backdrop-blur-sm border border-slate-700 rounded-2xl p-6 space-y-8 shadow-xl">
           
-          {/* Rounds & Breaths Configuration */}
           <div className="grid grid-cols-2 gap-6">
             <div className="space-y-3">
               <div className="flex justify-between items-center">
@@ -101,7 +194,7 @@ export const SetupView: React.FC<SetupViewProps> = ({ onStart }) => {
               </div>
               <input
                 type="range"
-                min="10"
+                min="5"
                 max="60"
                 step="5"
                 value={breaths}
@@ -111,7 +204,29 @@ export const SetupView: React.FC<SetupViewProps> = ({ onStart }) => {
             </div>
           </div>
 
-          {/* Retention Times Per Round */}
+          <div className="space-y-3">
+            <label className="text-sm font-medium text-slate-300 flex items-center gap-2">
+                <Music className="w-4 h-4 text-cyan-400" />
+                Música de Fondo
+            </label>
+            <div className="grid grid-cols-2 gap-3">
+                {themes.map((theme) => (
+                    <button
+                        key={theme.id}
+                        onClick={() => handleThemeSelect(theme.id)}
+                        className={`flex items-center justify-center gap-2 py-3 px-4 rounded-lg text-sm font-medium transition-all ${
+                            audioTheme === theme.id
+                            ? 'bg-cyan-600 text-white shadow-lg shadow-cyan-900/20 ring-1 ring-cyan-400'
+                            : 'bg-slate-900 hover:bg-slate-700 text-slate-400 hover:text-slate-200 border border-slate-700'
+                        }`}
+                    >
+                        {theme.icon}
+                        {theme.label}
+                    </button>
+                ))}
+            </div>
+          </div>
+
           <div className="space-y-4 border-t border-slate-700 pt-6">
             <div className="flex items-center justify-between">
                 <label className="text-sm font-medium text-slate-300 flex items-center gap-2">
@@ -152,7 +267,6 @@ export const SetupView: React.FC<SetupViewProps> = ({ onStart }) => {
         </div>
       </div>
 
-      {/* Help Modal */}
       {showHelp && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
           <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-2xl flex flex-col">
@@ -160,7 +274,7 @@ export const SetupView: React.FC<SetupViewProps> = ({ onStart }) => {
             <div className="sticky top-0 bg-slate-800/95 backdrop-blur border-b border-slate-700 p-4 flex justify-between items-center z-10">
               <h2 className="text-xl font-bold text-white flex items-center gap-2">
                 <Rabbit className="w-6 h-6 text-cyan-400" />
-                La Técnica del Conejo Zen
+                La Respiración del Conejo Zen
               </h2>
               <button 
                 onClick={() => setShowHelp(false)}
@@ -172,12 +286,10 @@ export const SetupView: React.FC<SetupViewProps> = ({ onStart }) => {
 
             <div className="p-6 space-y-8">
               
-              {/* Introduction */}
               <p className="text-slate-300 leading-relaxed">
-                Bienvenido a "El Aliento del Conejo". Esta técnica está diseñada para oxigenar tu cuerpo y resetear tu sistema nervioso. Sigue estos pasos en cada ronda:
+                Bienvenido a "La Respiración del Conejo Zen". Esta técnica está diseñada para oxigenar tu cuerpo y resetear tu sistema nervioso. Sigue estos pasos en cada ronda:
               </p>
 
-              {/* Steps */}
               <div className="space-y-6">
                 <div className="flex gap-4">
                   <div className="flex-shrink-0 w-12 h-12 rounded-full bg-blue-500/20 flex items-center justify-center border border-blue-500/30">
@@ -216,7 +328,6 @@ export const SetupView: React.FC<SetupViewProps> = ({ onStart }) => {
                 </div>
               </div>
 
-              {/* Warnings */}
               <div className="bg-yellow-900/20 border border-yellow-600/30 rounded-xl p-4 flex gap-3 items-start">
                 <AlertTriangle className="w-6 h-6 text-yellow-500 flex-shrink-0 mt-0.5" />
                 <div className="text-sm">
