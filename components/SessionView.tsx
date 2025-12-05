@@ -145,25 +145,40 @@ export const SessionView: React.FC<SessionViewProps> = ({ config, onFinish, onCa
         const theme = config.audioTheme;
         const capTheme = theme.charAt(0).toUpperCase() + theme.slice(1);
         
-        // Paths to try
+        // Priority list:
+        // 1. /audio/ (Standard Vite/Production)
+        // 2. /public/audio/ (Fallback/Raw server)
+        // 3. Capitalized versions (Case sensitive environments)
         const paths = [
-            `/public/audio/${theme}.mp3`,
             `/audio/${theme}.mp3`,
-            `/public/audio/${capTheme}.mp3`,
-            `/audio/${capTheme}.mp3`
+            `/audio/${capTheme}.mp3`,
+            `/public/audio/${theme}.mp3`,
+            `/public/audio/${capTheme}.mp3`
         ];
 
         let decodedBuffer: AudioBuffer | null = null;
 
         for (const path of paths) {
             try {
+                // Fetch with explicit check for content type to avoid "Index.html is not audio" error
                 const response = await fetch(path);
                 if (!response.ok) continue;
+
+                const contentType = response.headers.get('Content-Type');
+                // If the server returns HTML (like a 404 fallback page), skip it
+                if (contentType && contentType.includes('text/html')) {
+                    continue;
+                }
+
                 const arrayBuffer = await response.arrayBuffer();
                 decodedBuffer = await ctx.decodeAudioData(arrayBuffer);
-                if (decodedBuffer) break;
+                
+                if (decodedBuffer) {
+                    console.log(`Loaded audio from: ${path}`);
+                    break;
+                }
             } catch (e) {
-                console.warn(`Failed to load/decode ${path}`, e);
+                // Sigue al siguiente path silenciosamente
             }
         }
 
@@ -275,16 +290,20 @@ export const SessionView: React.FC<SessionViewProps> = ({ config, onFinish, onCa
   const playBellSound = () => {
     if (isMuted) return;
 
-    const audio = new Audio('/public/audio/bell.mp3');
-    audio.volume = BELL_VOLUME;
+    // Try multiple paths for bell sound too
+    const paths = ['/audio/bell.mp3', '/public/audio/bell.mp3'];
     
-    audio.onerror = () => {
-        const fallback = new Audio('/audio/bell.mp3');
-        fallback.volume = BELL_VOLUME;
-        fallback.play().catch(() => {});
+    // Simple recursive player
+    const playAttempt = (index: number) => {
+        if (index >= paths.length) return;
+        
+        const audio = new Audio(paths[index]);
+        audio.volume = BELL_VOLUME;
+        audio.onerror = () => playAttempt(index + 1);
+        audio.play().catch(() => playAttempt(index + 1));
     };
 
-    audio.play().catch(() => {});
+    playAttempt(0);
   };
 
   // Timer Logic

@@ -50,11 +50,13 @@ export const SetupView: React.FC<SetupViewProps> = ({ onStart }) => {
       }
 
       const capTheme = theme.charAt(0).toUpperCase() + theme.slice(1);
+      
+      // Try standard Vite path first (/audio/...), then fallback to raw (/public/audio/...)
       const paths = [
-          `/public/audio/${theme}.mp3`,
           `/audio/${theme}.mp3`,
-          `/public/audio/${capTheme}.mp3`,
-          `/audio/${capTheme}.mp3`
+          `/audio/${capTheme}.mp3`,
+          `/public/audio/${theme}.mp3`,
+          `/public/audio/${capTheme}.mp3`
       ];
 
       let foundUrl: string | null = null;
@@ -65,7 +67,8 @@ export const SetupView: React.FC<SetupViewProps> = ({ onStart }) => {
               const res = await fetch(path, { method: 'HEAD' });
               if (res.ok) {
                   const type = res.headers.get('Content-Type');
-                  if (type && !type.includes('text/html')) {
+                  // Only accept if it looks like audio, ignore HTML (SPA fallback)
+                  if (type && (type.includes('audio') || type.includes('application/octet-stream'))) {
                       foundUrl = path;
                       break;
                   }
@@ -73,9 +76,9 @@ export const SetupView: React.FC<SetupViewProps> = ({ onStart }) => {
           } catch(e) {}
       }
 
-      // Fallback: use direct path if fetch checks fail (common in some envs)
+      // Fallback: If fetch checks fail (e.g. strict CORS), assume standard path
       if (!foundUrl) {
-           foundUrl = `/public/audio/${theme}.mp3`;
+           foundUrl = `/audio/${theme}.mp3`;
       }
 
       if (foundUrl) {
